@@ -5,8 +5,6 @@ name: Screenshots
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, master]
 
 jobs:
   shots:
@@ -47,43 +45,7 @@ jobs:
         if: always()
         run: |
           mkdir -p shots
-          python3 - <<'PY'
-          import json, os, plistlib, shutil, subprocess, sys
-
-          bundle = "UITests.xcresult"
-          out = "shots"
-
-          def run(*args):
-              return subprocess.run(["xcrun", "xcresulttool", *args], capture_output=True, text=True)
-
-          r = run("get", "--legacy", "--format", "json", "--path", bundle)
-          if r.returncode != 0:
-              print(r.stderr)
-              sys.exit(0)
-          root = json.loads(r.stdout)
-
-          def walk(node):
-              if isinstance(node, dict):
-                  if node.get("_type", {}).get("_name") == "ActionTestAttachment":
-                      yield node
-                  for v in node.values():
-                      yield from walk(v)
-              elif isinstance(node, list):
-                  for v in node:
-                      yield from walk(v)
-
-          count = 0
-          for att in walk(root):
-              name = att.get("name", {}).get("_value", f"shot-{count}")
-              ref = att.get("payloadRef", {}).get("id", {}).get("_value")
-              if not ref:
-                  continue
-              dest = os.path.join(out, f"{name}.png")
-              r2 = run("export", "--legacy", "--type", "file", "--path", bundle, "--id", ref, "--output-path", dest)
-              if r2.returncode == 0:
-                  count += 1
-          print(f"exported {count} attachments")
-          PY
+          xcrun xcresulttool export attachments --path UITests.xcresult --output-path shots 2>&1 || true
           find shots -type f | sort
 
       - name: Upload screenshots
