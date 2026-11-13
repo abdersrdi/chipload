@@ -29,7 +29,7 @@ final class CalculatorModel {
 
     var cuttingSpeed: Double = 400 // SFM or m/min, whichever `units` is
 
-    private var operation: Operation {
+    private var operation: CutOperation {
         switch operationKind {
         case .milling: return .milling(flutes: flutes)
         case .turning: return .turning

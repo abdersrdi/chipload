@@ -2,7 +2,7 @@ import Foundation
 
 /// The operation a calculation is for. Turning and drilling take a feed per revolution directly;
 /// milling takes a feed per tooth multiplied by the flute count.
-public enum Operation: Sendable {
+public enum CutOperation: Sendable {
     case milling(flutes: Int)
     case turning
     case drilling
@@ -45,7 +45,7 @@ public struct SpeedsAndFeeds {
     /// `feedPerTooth` is the chip load for milling, or the feed per revolution for turning and
     /// drilling; the name is kept generic because the arithmetic is identical once flutes is fixed
     /// at 1 for a single-point or single-flute operation.
-    public static func feedRate(rpm: Double, operation: Operation, feedPerTooth: Double) -> Double {
+    public static func feedRate(rpm: Double, operation: CutOperation, feedPerTooth: Double) -> Double {
         switch operation {
         case .milling(let flutes):
             return rpm * Double(max(flutes, 0)) * feedPerTooth
@@ -56,7 +56,7 @@ public struct SpeedsAndFeeds {
 
     /// The chip load (or feed per rev) a desired feed rate and RPM imply. The inverse of
     /// `feedRate`, for "I want this table speed, what chip load do I dial in?".
-    public static func feedPerTooth(feedRate: Double, rpm: Double, operation: Operation) -> Double {
+    public static func feedPerTooth(feedRate: Double, rpm: Double, operation: CutOperation) -> Double {
         guard rpm > 0 else { return 0 }
         switch operation {
         case .milling(let flutes):
