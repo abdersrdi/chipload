@@ -1,0 +1,103 @@
+name: Screenshots
+
+# Builds the app and the calculator screen on an iPhone simulator, and saves screenshots as an
+# artifact. Started manually, or on every push to main while this is actively being built.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  shots:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen and generate the project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Create and boot an iPhone simulator
+        id: sim
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=json.load(sys.stdin)['runtimes']; ios=[x for x in r if x['identifier'].startswith('com.apple.CoreSimulator.SimRuntime.iOS')]; print(sorted(ios, key=lambda x: x['version'])[-1]['identifier'])")
+          DEVICE_TYPE=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devicetypes']; print([x['identifier'] for x in d if 'iPhone-17-Pro' in x['identifier']][0])" 2>/dev/null || echo "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro")
+          echo "Runtime: $RUNTIME"
+          echo "Device type: $DEVICE_TYPE"
+          UDID=$(xcrun simctl create "Shots" "$DEVICE_TYPE" "$RUNTIME")
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build and run the screenshot test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Chipload.xcodeproj \
+            -scheme Chipload-iOS \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath UITests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee ui.log
+
+      - name: Export screenshots from the result bundle
+        if: always()
+        run: |
+          mkdir -p shots
+          python3 - <<'PY'
+          import json, os, plistlib, shutil, subprocess, sys
+
+          bundle = "UITests.xcresult"
+          out = "shots"
+
+          def run(*args):
+              return subprocess.run(["xcrun", "xcresulttool", *args], capture_output=True, text=True)
+
+          r = run("get", "--legacy", "--format", "json", "--path", bundle)
+          if r.returncode != 0:
+              print(r.stderr)
+              sys.exit(0)
+          root = json.loads(r.stdout)
+
+          def walk(node):
+              if isinstance(node, dict):
+                  if node.get("_type", {}).get("_name") == "ActionTestAttachment":
+                      yield node
+                  for v in node.values():
+                      yield from walk(v)
+              elif isinstance(node, list):
+                  for v in node:
+                      yield from walk(v)
+
+          count = 0
+          for att in walk(root):
+              name = att.get("name", {}).get("_value", f"shot-{count}")
+              ref = att.get("payloadRef", {}).get("id", {}).get("_value")
+              if not ref:
+                  continue
+              dest = os.path.join(out, f"{name}.png")
+              r2 = run("export", "--legacy", "--type", "file", "--path", bundle, "--id", ref, "--output-path", dest)
+              if r2.returncode == 0:
+                  count += 1
+          print(f"exported {count} attachments")
+          PY
+          find shots -type f | sort
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots
+          if-no-files-found: warn
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-log
+          path: ui.log
+          if-no-files-found: warn
